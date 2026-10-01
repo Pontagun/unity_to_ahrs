@@ -19,7 +19,7 @@ def ned_to_unity(q_list):
     return [np.array([w, -y, z, -x]) for w, x, y, z in q_list]
 
 # in_path = sys.argv[1] if len(sys.argv) > 1 else "imu_sequence_example_normalized.csv"
-in_path = sys.argv[1] if len(sys.argv) > 1 else "rec02_ned_normalized.csv"
+in_path = sys.argv[1] if len(sys.argv) > 1 else "rec22_ned_normalized.csv"
 base = in_path.rsplit(".", 1)[0]
 data = np.genfromtxt(in_path, delimiter=",", names=True)
 t = data["time_s"]
@@ -53,6 +53,7 @@ ukf_l = ned_to_unity(ukf_l)
 
 cam = np.column_stack([data["cam_qw"], data["cam_qx"], data["cam_qy"], data["cam_qz"]])
 cam = ned_to_unity(cam)
+
 axes[0].plot(t, madgwick_l)
 axes[1].plot(t, cam)
 axes[2].plot(t, ekf_l)
