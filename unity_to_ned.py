@@ -4,7 +4,9 @@ import sys
 
 import numpy as np
 
+# In NED, values of accel is multiplied by real G.
 G = 9.80665  # g -> m/s^2
+# In NED, values of accel is multiplied by real G.
 GAUSS_TO_NT = 1e5  # Gauss -> nT
 
 
