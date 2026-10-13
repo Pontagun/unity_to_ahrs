@@ -8,7 +8,6 @@ FILTER = {"madwick": Madgwick, "mahony": Mahony, "ekf": EKF, "fkf": FKF, "ukf": 
 
 
 def ned_to_unity(q_list):
-    # return q_list
     return [np.array([w, -y, z, -x]) for w, x, y, z in q_list]
 
 
@@ -20,7 +19,6 @@ def quaternion_error(q1, q2):
 
     w1, x1, y1, z1 = np.moveaxis(q1, -1, 0)
     w2, x2, y2, z2 = np.moveaxis(q2, -1, 0)
-    # conj(q1) = [w1, -x1, -y1, -z1], Hamilton product with q2
     q_diff = np.stack([
         w1 * w2 + x1 * x2 + y1 * y2 + z1 * z2,
         w1 * x2 - x1 * w2 - y1 * z2 + z1 * y2,
@@ -31,7 +29,7 @@ def quaternion_error(q1, q2):
     # q and -q are the same rotation; pick the shortest path
     q_diff = np.where(q_diff[..., :1] < 0, -q_diff, q_diff)
     angle = 2 * np.arctan2(np.linalg.norm(q_diff[..., 1:], axis=-1), q_diff[..., 0])
-    return angle
+    return np.degrees(angle)
 
 
 def filter_errors(q1, q2):
@@ -41,18 +39,30 @@ def filter_errors(q1, q2):
     errors = [quaternion_error(q1, q2) for q1, q2 in zip(q1, q2)]
     return errors
 
-for i in range(1, 10):
+
+LOCATION_B = [
+    5794, 4623, 9252, 7284, 7032, 4591, 6993, 5831, 5072, 6359, 3938, 7045, 7182, 3388, 5960, 7795, 4934, 4989, 8660,
+    3638, 4664, 4385, 7665, 6965, 8324, 6213, 7113, 5242, 5391, 8298,
+]
+
+for i in range(10, 31):
+    print(i)
     # in_path = sys.argv[1] if len(sys.argv) > 1 else "imu_sequence_example_normalized.csv"
-    in_path = sys.argv[1] if len(sys.argv) > 1 else f"ned/rec0{i}_ned.csv"
+    in_path = sys.argv[1] if len(sys.argv) > 1 else f"ned_unit/rec{i}_ned_normalized.csv"
     base = in_path.rsplit(".", 1)[0]
     data = np.genfromtxt(in_path, delimiter=",", names=True)
     t = data["time_s"]
     gyr = np.column_stack([data["gyr_x_rad_s"], data["gyr_y_rad_s"], data["gyr_z_rad_s"]])
     acc = np.column_stack([data["acc_x_m_s2"], data["acc_y_m_s2"], data["acc_z_m_s2"]])
     mag = np.column_stack([data["mag_x_nT"], data["mag_y_nT"], data["mag_z_nT"]])
+    # All Magnetic field measurements must be non-zero. - Complementary filter's requirement.
+    mag[:, 2] = np.where(mag[:, 2] == 0, 1, mag[:, 2])
+    acc[:, 2] = np.where(acc[:, 2] == 0, 9.98, acc[:, 2])
+
     cam = np.column_stack([data["cam_qw"], data["cam_qx"], data["cam_qy"], data["cam_qz"]])
     # Run the filter (acc and mag are normalized internally, so units don't matter)
     fs = 1 / np.mean(np.diff(t))
+
 
     madgwick = Madgwick(gyr=gyr, acc=acc, mag=mag, frequency=fs)
     complementary = Complementary(gyr=gyr, acc=acc, mag=mag, frequency=fs)
@@ -67,7 +77,7 @@ for i in range(1, 10):
     ukfs = ned_to_unity(list(ukf.Q))
     cam = ned_to_unity(cam)
 
-    distortion_rec = int(len(cam) / 2)
+    distortion_rec = LOCATION_B[i-1]
 
     madgwick_errors_not_b = filter_errors(madgwicks[:distortion_rec], cam[:distortion_rec])
     complementary_errors_not_b = filter_errors(complementarys[:distortion_rec], cam[:distortion_rec])
@@ -81,21 +91,19 @@ for i in range(1, 10):
     fkf_errors_at_b = filter_errors(fkfs[distortion_rec:], cam[distortion_rec:])
     ukf_errors_at_b = filter_errors(ukfs[distortion_rec:], cam[distortion_rec:])
 
+    with open("ned_notb.txt", "a", encoding="utf-8") as f:
+        f.write(f"{np.mean(madgwick_errors_not_b)}"
+                f", {np.mean(complementary_errors_not_b)}"
+                f", {np.mean(ekf_errors_not_b)}"
+                f", {np.mean(fkf_errors_not_b)}"
+                f", {np.mean(ukf_errors_not_b)}\n")
 
-
-    with open("notb.txt", "a", encoding="utf-8") as f:
-        f.write(f"{np.linalg.norm(madgwick_errors_not_b)}"
-                f", {np.linalg.norm(complementary_errors_not_b)}"
-                f", {np.linalg.norm(ekf_errors_not_b)}"
-                f", {np.linalg.norm(fkf_errors_not_b)}"
-                f", {np.linalg.norm(ukf_errors_not_b)}\n")
-
-    with open("atb.txt", "a", encoding="utf-8") as fb:
-        fb.write(f"{np.linalg.norm(madgwick_errors_at_b)}"
-                f", {np.linalg.norm(complementary_errors_at_b)}"
-                f", {np.linalg.norm(ekf_errors_at_b)}"
-                f", {np.linalg.norm(fkf_errors_at_b)}"
-                f", {np.linalg.norm(ukf_errors_at_b)}\n")
+    with open("ned_atb.txt", "a", encoding="utf-8") as fb:
+        fb.write(f"{np.mean(madgwick_errors_at_b)}"
+                 f", {np.mean(complementary_errors_at_b)}"
+                 f", {np.mean(ekf_errors_at_b)}"
+                 f", {np.mean(fkf_errors_at_b)}"
+                 f", {np.mean(ukf_errors_at_b)}\n")
 
     # fig, axes = plt.subplots(5, 1, sharex=True, figsize=(10, 7))
     # axes[0].plot(t, madgwick_errors)
