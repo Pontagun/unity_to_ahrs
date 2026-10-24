@@ -1,5 +1,5 @@
 import sys
-
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from ahrs.filters import Madgwick, Mahony, EKF, Complementary, FKF, UKF
@@ -36,8 +36,7 @@ def filter_errors(q1, q2):
     if len(q1) != len(q2):
         return ValueError("len(q1) != len(q2)")
 
-    errors = [quaternion_error(q1, q2) for q1, q2 in zip(q1, q2)]
-    return errors
+    return quaternion_error(q1, q2)
 
 
 LOCATION_B = [
@@ -45,24 +44,27 @@ LOCATION_B = [
     3638, 4664, 4385, 7665, 6965, 8324, 6213, 7113, 5242, 5391, 8298,
 ]
 
-for i in range(10, 31):
-    print(i)
-    # in_path = sys.argv[1] if len(sys.argv) > 1 else "imu_sequence_example_normalized.csv"
-    in_path = sys.argv[1] if len(sys.argv) > 1 else f"ned_unit/rec{i}_ned_normalized.csv"
-    base = in_path.rsplit(".", 1)[0]
-    data = np.genfromtxt(in_path, delimiter=",", names=True)
+if os.path.exists("ned_atb.txt"):
+    os.remove("ned_atb.txt")
+    os.remove("ned_notb.txt")
+
+for i in range(1, 31):
+    print(f"Start working on {i:02d}")
+
+    file = f"ned_unit/rec{i:02d}_ned_normalized.csv"
+
+    data = np.genfromtxt(file, delimiter=",", names=True)
     t = data["time_s"]
     gyr = np.column_stack([data["gyr_x_rad_s"], data["gyr_y_rad_s"], data["gyr_z_rad_s"]])
     acc = np.column_stack([data["acc_x_m_s2"], data["acc_y_m_s2"], data["acc_z_m_s2"]])
     mag = np.column_stack([data["mag_x_nT"], data["mag_y_nT"], data["mag_z_nT"]])
-    # All Magnetic field measurements must be non-zero. - Complementary filter's requirement.
+
     mag[:, 2] = np.where(mag[:, 2] == 0, 1, mag[:, 2])
     acc[:, 2] = np.where(acc[:, 2] == 0, 9.98, acc[:, 2])
 
     cam = np.column_stack([data["cam_qw"], data["cam_qx"], data["cam_qy"], data["cam_qz"]])
     # Run the filter (acc and mag are normalized internally, so units don't matter)
     fs = 1 / np.mean(np.diff(t))
-
 
     madgwick = Madgwick(gyr=gyr, acc=acc, mag=mag, frequency=fs)
     complementary = Complementary(gyr=gyr, acc=acc, mag=mag, frequency=fs)
@@ -77,19 +79,17 @@ for i in range(10, 31):
     ukfs = ned_to_unity(list(ukf.Q))
     cam = ned_to_unity(cam)
 
-    distortion_rec = LOCATION_B[i-1]
+    madgwick_errors_not_b = filter_errors(madgwicks[:LOCATION_B[i - 1]], cam[:LOCATION_B[i - 1]])
+    complementary_errors_not_b = filter_errors(complementarys[:LOCATION_B[i - 1]], cam[:LOCATION_B[i - 1]])
+    ekf_errors_not_b = filter_errors(ekfs[:LOCATION_B[i - 1]], cam[:LOCATION_B[i - 1]])
+    fkf_errors_not_b = filter_errors(fkfs[:LOCATION_B[i - 1]], cam[:LOCATION_B[i - 1]])
+    ukf_errors_not_b = filter_errors(ukfs[:LOCATION_B[i - 1]], cam[:LOCATION_B[i - 1]])
 
-    madgwick_errors_not_b = filter_errors(madgwicks[:distortion_rec], cam[:distortion_rec])
-    complementary_errors_not_b = filter_errors(complementarys[:distortion_rec], cam[:distortion_rec])
-    ekf_errors_not_b = filter_errors(ekfs[:distortion_rec], cam[:distortion_rec])
-    fkf_errors_not_b = filter_errors(fkfs[:distortion_rec], cam[:distortion_rec])
-    ukf_errors_not_b = filter_errors(ukfs[:distortion_rec], cam[:distortion_rec])
-
-    madgwick_errors_at_b = filter_errors(madgwicks[distortion_rec:], cam[distortion_rec:])
-    complementary_errors_at_b = filter_errors(complementarys[distortion_rec:], cam[distortion_rec:])
-    ekf_errors_at_b = filter_errors(ekfs[distortion_rec:], cam[distortion_rec:])
-    fkf_errors_at_b = filter_errors(fkfs[distortion_rec:], cam[distortion_rec:])
-    ukf_errors_at_b = filter_errors(ukfs[distortion_rec:], cam[distortion_rec:])
+    madgwick_errors_at_b = filter_errors(madgwicks[LOCATION_B[i - 1]:], cam[LOCATION_B[i - 1]:])
+    complementary_errors_at_b = filter_errors(complementarys[LOCATION_B[i - 1]:], cam[LOCATION_B[i - 1]:])
+    ekf_errors_at_b = filter_errors(ekfs[LOCATION_B[i - 1]:], cam[LOCATION_B[i - 1]:])
+    fkf_errors_at_b = filter_errors(fkfs[LOCATION_B[i - 1]:], cam[LOCATION_B[i - 1]:])
+    ukf_errors_at_b = filter_errors(ukfs[LOCATION_B[i - 1]:], cam[LOCATION_B[i - 1]:])
 
     with open("ned_notb.txt", "a", encoding="utf-8") as f:
         f.write(f"{np.mean(madgwick_errors_not_b)}"
